@@ -1,8 +1,8 @@
-set(vmlinuxa ${CMAKE_CURRENT_LIST_DIR}/../vmlinux.a)
+#set(vmlinuxa ${CMAKE_CURRENT_LIST_DIR}/../vmlinux.a)
 set(output "${CMAKE_CURRENT_LIST_DIR}/initsyms.gen.c")
 
 execute_process(
-    COMMAND llvm-nm --defined-only --format=just-symbols ${vmlinuxa}
+    COMMAND ${NM} --defined-only --format=just-symbols ${vmlinuxa}
     OUTPUT_VARIABLE syms
     RESULT_VARIABLE rr)
 
