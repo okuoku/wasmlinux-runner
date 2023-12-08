@@ -1,3 +1,4 @@
+#define YUNI_W2C_FIXUP_WASMLINUX_USER
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@
 #include <semaphore>
 
 /* Kernel */
-#include "lin.h"
+#include "kernel.h"
 w2c_kernel the_linux;
 thread_local w2c_kernel* my_linux;
 
@@ -505,7 +506,7 @@ thr_user_vfork(w2c_kernel* kern, struct user_instance* ui,
     // FIXME: free envblock and stack at exit()
 }
 
-int /* exported to w2c user */
+extern "C" int /* exported to w2c user */
 wasmlinux_run_to_execve(jmp_buf* jb){
     uint32_t procctx;
 
@@ -948,7 +949,7 @@ w2c_env_wasmlinux_clone32(struct w2c_env* env,
         flags &= ~LKL_CLONE_SETTLS;
     }
     
-    if(flags & CLONE_THREAD){
+    if(flags & LKL_CLONE_THREAD){
         /* Thread creation */
         thrargs = (struct userthr_args*)malloc(sizeof(struct userthr_args));
         printf("TLS = %x\n",tls);
