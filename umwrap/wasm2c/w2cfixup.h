@@ -36,9 +36,7 @@ int wasmlinux_run_to_execve(jmp_buf* jb);
      memcpy(&p, &x, sizeof(void*)); \
      longjmp(*p, y);})
 
-
-#endif
-
 #ifdef __cplusplus
 }
+#endif
 #endif
