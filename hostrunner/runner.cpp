@@ -1,4 +1,4 @@
-#define YUNI_W2C_FIXUP_WASMLINUX_USER
+#define YUNI_W2C_FIXUP_WASMLINUX_USER /* Remove this */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,19 +16,26 @@
 w2c_kernel the_linux;
 thread_local w2c_kernel* my_linux;
 
-/* Userproc */
-#include "user.h"
-struct user_instance {
-    w2c_user the_user; /* instance for main thread */
-    wasm_rt_funcref_table_t userfuncs;
-    uint32_t userdata;
-    uint32_t userstack;
+/* User */
+struct user_instance;
+struct user_context;
+thread_local struct user_context* my_user;
+
+extern "C" void
+wasmlinux_tls_set_context(struct user_context* ctx){
+    my_user = ctx;
+}
+
+extern "C" struct user_context*
+wasmlinux_tls_get_context(void){
+    return my_user;
+}
+
+extern "C" {
+    void wasmlinux_user_ctx_new32(struct user_context* cur, uint32_t stack);
+    uint32_t wasmlinux_user_ctx_exec32(int type, uint32_t func, uint32_t param0, uint32_t param1, uint32_t param2, uint32_t param3);
+    struct user_instance* wasmlinux_user_module_instantiate32(void* bogus, uint32_t dataptr, uint32_t initial_stack);
 };
-
-uint32_t usertablebase;
-thread_local struct user_instance* my_user_i;
-thread_local w2c_user* my_user;
-
 
 /* Pool management */
 uint8_t* mpool_base;
@@ -356,9 +363,6 @@ newinstance(){
     my_linux = me;
 }
 
-typedef void (*sighandler1)(w2c_user*, uint32_t);
-typedef void (*sighandler3)(w2c_user*, uint32_t, uint32_t, uint32_t);
-
 static void
 handlesignal(void){
     int i;
@@ -367,8 +371,6 @@ handlesignal(void){
     uint32_t ptr0;
     uint32_t ptr1;
     uint32_t ptr2;
-    sighandler1 s1;
-    sighandler3 s3;
     buf = (uint32_t*)pool_alloc(128*4);
     ptr0 = pool_lklptr(buf);
     memset(buf, 0, 128*4);
@@ -382,11 +384,11 @@ handlesignal(void){
     ptr2 = 0; /* ucontext_t */
     sh = buf[0];
     if(buf[1] & 4 /* SA_SIGINFO */){
-        s3 = (sighandler3)my_user_i->userfuncs.data[sh].func;
-        s3(my_user, buf[12 /* sig */], ptr1, ptr2);
+        (void) wasmlinux_user_ctx_exec32(3 /* sighandler3 */, sh,
+                                         buf[12 /* sig */], ptr1, ptr2, 0);
     }else{
-        s1 = (sighandler1)my_user_i->userfuncs.data[sh].func;
-        s1(my_user, buf[12 /* sig */]);
+        (void) wasmlinux_user_ctx_exec32(1 /* sighandler1 */, sh,
+                                         buf[12 /* sig */], 0, 0, 0);
     }
 
     pool_free(buf);
@@ -476,16 +478,16 @@ class thr_exit {};
 thread_local struct vfork_ctx* vfork_ctx;
 
 static void
-thr_user_vfork(w2c_kernel* kern, struct user_instance* ui, 
-               uint32_t procctx, uint32_t envblock){
+thr_user_vfork(w2c_kernel* kern, uint32_t procctx, uint32_t envblock){
+    struct user_instance* ui;
+    uint32_t userdata, userstack;
     uint32_t ret;
-    uint32_t stack;
 
     /* Instantiate and assign user module */
-    my_user_i = ui;
-    my_user = &ui->the_user;
-    wasm2c_user_instantiate(my_user, 0, 0);
-    w2c_user_0x5F_wasm_apply_data_relocs(my_user);
+    userdata = pool_lklptr(pool_alloc(199980*2 /* FIXME */));
+    userstack = pool_lklptr(pool_alloc(1024*1024));
+    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack); 
+
     vfork_ctx = 0;
 
     /* Allocate linux thread context */
@@ -497,7 +499,9 @@ thr_user_vfork(w2c_kernel* kern, struct user_instance* ui,
 
     /* Run usercode */
     try {
-        w2c_user_0x5Fstart_c(my_user, envblock);
+        (void) wasmlinux_user_ctx_exec32(0 /* admin */,
+                                         0 /* entrypoint */, envblock,
+                                         0, 0, 0);
         thr_tls_cleanup();
     } catch (thr_exit &req) {
         printf("Exiting thread(main thread).\n");
@@ -525,23 +529,6 @@ wasmlinux_run_to_execve(jmp_buf* jb){
     return 0;
 }
 
-static struct user_instance*
-newuserinstance(void){
-    struct user_instance* ui;
-    ui = (struct user_instance*)malloc(sizeof(struct user_instance));
-
-    ui->userstack = pool_lklptr(pool_alloc(1024*1024));
-    ui->userdata = pool_lklptr(pool_alloc(wasm2c_user_max_env_memory));
-    /* FIXME: calc max size */
-    wasm_rt_allocate_funcref_table(&ui->userfuncs, 1024, 1024);
-    usertablebase = 0;
-    printf("(user) data = %x\n", ui->userdata);
-    printf("(user) stack = %x\n", ui->userstack);
-    printf("(user) tablebase = %x\n", usertablebase);
-
-    return ui;
-}
-
 uint32_t runsyscall32(uint32_t no, uint32_t nargs, uint32_t in);
 uint32_t
 emul_execve(uint32_t nargs, uint32_t in){
@@ -554,7 +541,6 @@ emul_execve(uint32_t nargs, uint32_t in){
     uint32_t* envp;
     uint32_t envblock;
     w2c_kernel* newkernel;
-    struct user_instance* ui;
     std::thread* thr;
     args = (uint32_t*)pool_hostptr(in);
 
@@ -572,13 +558,12 @@ emul_execve(uint32_t nargs, uint32_t in){
     newtask_apply(vfork_ctx->parent_process_ctx);
 
     /* Instantiate user code */
-    ui = newuserinstance(); /* FIXME: Leak */
 
     /* Spawn new user thread */
     argv = (uint32_t*)pool_hostptr(args[1]);
     envp = (uint32_t*)pool_hostptr(args[2]);
     envblock = create_envblock_frompool(argv, envp);
-    thr = new std::thread(thr_user_vfork, newkernel, ui, 
+    thr = new std::thread(thr_user_vfork, newkernel,
                           procctx, envblock);
     thr->detach();
 
@@ -682,32 +667,12 @@ static int kfd_stdout;
 static int kfd_stderr;
 
 /* User handlers */
-uint32_t*
-w2c_env_0x5F_table_base(struct w2c_env* bogus){
-    return &usertablebase;
-}
-
-uint32_t*
-w2c_env_0x5F_memory_base(struct w2c_env* bogus){
-    return &my_user_i->userdata;
-}
-
-uint32_t*
-w2c_env_0x5F_stack_pointer(struct w2c_env* bogus){
-    return &my_user_i->userstack;
-}
-
-wasm_rt_funcref_table_t* 
-w2c_env_0x5F_indirect_function_table(struct w2c_env* bogus){
-    return &my_user_i->userfuncs;
-}
-
-wasm_rt_memory_t* 
+extern "C" wasm_rt_memory_t* 
 w2c_env_memory(struct w2c_env* bogus){
     return &the_linux.w2c_memory;
 }
 
-uint32_t
+extern "C" uint32_t
 w2c_env_wasmlinux_syscall32(struct w2c_env* env, uint32_t argc, uint32_t no,
                             uint32_t args){
     printf("(user) syscall = %d\n", no);
@@ -715,7 +680,7 @@ w2c_env_wasmlinux_syscall32(struct w2c_env* env, uint32_t argc, uint32_t no,
 }
 
 thread_local uint32_t usertls;
-uint32_t
+extern "C" uint32_t
 w2c_env_wasmlinux_tlsrw32(struct w2c_env* env, uint32_t op, uint32_t val){
     if(op == 0){
         printf("USERTLS[%d] := %x\n", my_thread_objid, val);
@@ -797,7 +762,9 @@ create_envblock(const char* argv[], const char* envp[]){
 
 
 static void
-thr_user(user_instance* ui, uint32_t procctx){
+thr_user(uint32_t procctx){
+    struct user_instance* ui;
+    uint32_t userdata, userstack;
     uint32_t envblock;
     uint32_t ret;
     const char* argv[] = {
@@ -806,10 +773,10 @@ thr_user(user_instance* ui, uint32_t procctx){
     const char* envp[] = {"PATH=/bin", 0};
 
     /* Instantiate and assign user module */
-    my_user_i = ui;
-    my_user = &ui->the_user;
-    wasm2c_user_instantiate(my_user, 0, 0);
-    w2c_user_0x5F_wasm_apply_data_relocs(my_user);
+    userdata = pool_lklptr(pool_alloc(199980*2 /* FIXME */));
+    userstack = pool_lklptr(pool_alloc(1024*1024));
+
+    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack);
     vfork_ctx = 0;
 
     /* Allocate linux context */
@@ -835,11 +802,8 @@ thr_user(user_instance* ui, uint32_t procctx){
     /* MUSL startup */
     envblock = create_envblock(argv, envp);
     /* Run usercode */
-    // Raw init
-    // ret = w2c_user_main(my_user, 0, 0);
-    // printf("(user) ret = %d\n", ret);
     try {
-        w2c_user_0x5Fstart_c(my_user, envblock);
+        wasmlinux_user_ctx_exec32(0, 0, envblock, 0, 0, 0);
         thr_tls_cleanup();
     } catch (thr_exit &req) {
         printf("Exiting thread(main thread).\n");
@@ -850,16 +814,15 @@ thr_user(user_instance* ui, uint32_t procctx){
 
 static void
 spawn_user(void){
-    struct user_instance* ui;
     uint32_t procctx;
     std::thread* thr;
 
-    ui = newuserinstance();
+
     /* fork */
     procctx = newtask_process();
     printf("procctx = %d\n", procctx);
 
-    thr = new std::thread(thr_user, ui, procctx);
+    thr = new std::thread(thr_user, procctx);
     thr->detach();
 }
 
@@ -874,16 +837,12 @@ struct userthr_args {
     uint32_t pid;
 };
 
-typedef uint32_t (*startroutine)(w2c_user*, uint32_t);
-
 static void
-thr_uthr(struct userthr_args* args){
-    w2c_user* me;
+thr_uthr(struct user_context* prevctx, struct userthr_args* args){
     uint32_t tid;
     uint32_t fn;
     uint32_t arg;
     uint32_t stack;
-    startroutine start;
 
     fn = args->fn;
     arg = args->arg;
@@ -911,21 +870,15 @@ thr_uthr(struct userthr_args* args){
     args = 0;
 
 
-    /* Allocate new instance */
-    me = (w2c_user*)malloc(sizeof(w2c_user));
-    memcpy(me, &my_user_i->the_user, sizeof(w2c_user));
-    /* Override stack pointer */
-    me->w2c_env_0x5F_stack_pointer = &stack; /* FIXME: is bottom??? */
-    //printf("New stack pointer = %d\n", me->w2c_0x5F_stack_pointer);
+    /* Allocate and assign new instance */
+    wasmlinux_user_ctx_new32(prevctx, stack);
 
-    /* Assign user instance */
-    my_user = me;
 
     /* Ready to roll, call fn */
-    start = (startroutine)my_user_i->userfuncs.data[fn].func;
-    printf("Calling %d (%p) ...\n",fn,start);
     try {
-        start(my_user, arg);
+        (void) wasmlinux_user_ctx_exec32(1 /* thread entrypoint */, 
+                                         fn, arg, 0, 0, 0);
+
         thr_tls_cleanup();
     } catch (thr_exit &req) {
         printf("Exiting thread(user).\n");
@@ -934,7 +887,7 @@ thr_uthr(struct userthr_args* args){
 }
 
 
-uint32_t
+extern "C" uint32_t
 w2c_env_wasmlinux_clone32(struct w2c_env* env, 
                           uint32_t fn, uint32_t stack, 
                           uint32_t flags, uint32_t arg,
@@ -966,7 +919,7 @@ w2c_env_wasmlinux_clone32(struct w2c_env* env,
         thrargs->ctx = w2c_kernel_taskmgmt(my_linux, 4, flags, ptid, ctid);
         {
             std::unique_lock<std::mutex> NN(*thrargs->mtx);
-            thr = new std::thread(thr_uthr, thrargs);
+            thr = new std::thread(thr_uthr, wasmlinux_tls_get_context(), thrargs);
             thr->detach();
             thrargs->cv->wait(NN);
             pid = thrargs->pid;

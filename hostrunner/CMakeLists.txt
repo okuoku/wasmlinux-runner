@@ -51,5 +51,6 @@ add_executable(runner
     ${usermods}
     mempoolite/mplite.c
     runner.cpp
+    userctx_w2c.c
 )
 
