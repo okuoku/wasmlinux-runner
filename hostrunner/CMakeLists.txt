@@ -54,3 +54,8 @@ add_executable(runner
     userctx_w2c.c
 )
 
+if(MSVC)
+    # /EHs /EHc-: extern "C" may throw exceptions
+    # https://learn.microsoft.com/en-us/cpp/build/reference/eh-exception-handling-model
+    target_compile_options(runner PRIVATE /EHsc-)
+endif()
