@@ -761,14 +761,11 @@ create_envblock(const char* argv[], const char* envp[]){
 
 
 static void
-thr_user(uint32_t procctx){
+thr_user(const char* argv[], uint32_t procctx){
     struct user_instance* ui;
     uint32_t userdata, userstack;
     uint32_t envblock;
     uint32_t ret;
-    const char* argv[] = {
-        "dummy", "a", "b", "c", "d e f", 0
-    };
     const char* envp[] = {"PATH=/bin", 0};
 
     /* Instantiate and assign user module */
@@ -811,17 +808,75 @@ thr_user(uint32_t procctx){
 }
 
 static void
-spawn_user(void){
+run_busybox(const char* argv[]){
     uint32_t procctx;
     std::thread* thr;
 
-
     /* fork */
     procctx = newtask_process();
-    printf("procctx = %d\n", procctx);
+    thr = new std::thread(thr_user, argv, procctx);
+    thr->join();
+    delete thr;
+}
 
-    thr = new std::thread(thr_user, procctx);
-    thr->detach();
+static void
+startup(void){
+    size_t i;
+    {
+        const char* a[] = { "mkdir", "/tmp", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mkdir", "/proc", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mkdir", "/bin", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mkdir", "/sbin", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mkdir", "-p", "/usr/bin", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mkdir", "-p", "/usr/sbin", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mount", "-t",  "proc", "proc", "/proc", 0 };
+        run_busybox(a);
+    }
+    /*
+    {
+        const char* a[] = { "ifconfig", "-a", 0 };
+        run_busybox(a);
+    }
+    */
+    {
+        const char* a[] = { "mount", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "sh", "-c", "echo -n \"#!/usr/bin/env wasmlinux-id-exec\nxxxxxxxx....\n\" > /bin/busybox", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "chmod", "+x", "/bin/busybox", 0 };
+        run_busybox(a);
+    }
+    /* FIXME: Workaround for run_busybox actually run /init (so busybox --install will use it) */
+    {
+        const char* a[] = { "cp", "/bin/busybox", "/init", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "/bin/busybox", "--install", "-s", 0 };
+        run_busybox(a);
+    }
 }
 
 struct userthr_args {
@@ -1507,7 +1562,7 @@ main(int ac, char** av){
     printf("(init) pid = %d\n", debuggetpid());
 
     /* Create user program */
-    spawn_user();
+    startup();
 
     /* Sleep */
     for(;;){
