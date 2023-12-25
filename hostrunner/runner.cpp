@@ -480,13 +480,18 @@ thread_local struct vfork_ctx* vfork_ctx;
 static void
 thr_user_vfork(w2c_kernel* kern, uint32_t procctx, uint32_t envblock){
     struct user_instance* ui;
+    void* puserdata;
+    void* puserstack;
     uint32_t userdata, userstack;
     uint32_t ret;
+    const size_t STACK_SIZE = 1024*1024;
 
     /* Instantiate and assign user module */
-    userdata = pool_lklptr(pool_alloc(199980*2 /* FIXME */));
-    userstack = pool_lklptr(pool_alloc(1024*1024));
-    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack); 
+    puserdata = pool_alloc(199980 /* FIXME */);
+    puserstack = pool_alloc(STACK_SIZE);
+    userdata = pool_lklptr(puserdata);
+    userstack = pool_lklptr(puserstack);
+    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack + STACK_SIZE); 
 
     vfork_ctx = 0;
 
@@ -506,7 +511,10 @@ thr_user_vfork(w2c_kernel* kern, uint32_t procctx, uint32_t envblock){
         printf("Exiting thread(main thread).\n");
     }
     thr_tls_cleanup();
-    // FIXME: free envblock and stack at exit()
+    pool_free(puserdata); // FIXME: Should move to module instance
+    pool_free(puserstack);
+    pool_free(pool_hostptr(envblock));
+
 }
 
 extern "C" int /* exported to w2c user */
@@ -763,16 +771,21 @@ create_envblock(const char* argv[], const char* envp[]){
 static void
 thr_user(const char* argv[], uint32_t procctx){
     struct user_instance* ui;
+    void* puserdata;
+    void* puserstack;
     uint32_t userdata, userstack;
     uint32_t envblock;
     uint32_t ret;
     const char* envp[] = {"PATH=/bin", 0};
+    const size_t STACK_SIZE = 1024*1024;
 
     /* Instantiate and assign user module */
-    userdata = pool_lklptr(pool_alloc(199980*2 /* FIXME */));
-    userstack = pool_lklptr(pool_alloc(1024*1024));
+    puserdata = pool_alloc(199980 /* FIXME */);
+    puserstack = pool_alloc(STACK_SIZE);
+    userdata = pool_lklptr(puserdata);
+    userstack = pool_lklptr(puserstack);
 
-    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack);
+    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack + (1024*1024));
     vfork_ctx = 0;
 
     /* Allocate linux context */
@@ -804,7 +817,9 @@ thr_user(const char* argv[], uint32_t procctx){
         printf("Exiting thread(main thread).\n");
     }
     thr_tls_cleanup();
-    // FIXME: free envblock at exit()
+    pool_free(puserdata);
+    pool_free(puserstack);
+    pool_free(pool_hostptr(envblock));
 }
 
 static void
