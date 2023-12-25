@@ -2,17 +2,22 @@
 #include <stdio.h>
 
 /* Userproc */
-#include "user.h"
+#include "wasm-rt.h"
+#include "glue_modules.h"
+uintptr_t wasmlinux_modquery__embedded(int cmd, int modidx, uintptr_t ctx, uintptr_t param);
 
 struct user_instance;
 struct user_context {
     struct user_instance* i;
+    void* modulectx;
+    /* for wasm2c module */
     uint32_t stack;
-    w2c_user the_user;
 };
 
 struct user_instance {
     struct user_context main_context;
+    size_t ctxsize;
+    /* for wasm2c module */
     wasm_rt_funcref_table_t userfuncs;
     uint32_t userdata;
 };
@@ -59,10 +64,10 @@ wasmlinux_user_module_load(void* bogus, unsigned char* modid, size_t len){
 /* type == 0 for admin */
 /* 0: w2c_user_0x5Fstart_c(my_user, envblock); */
 /* thread start routine */
-typedef uint32_t (*startroutine)(w2c_user*, uint32_t); /* type 1 */
+typedef uint32_t (*startroutine)(void*, uint32_t); /* type 1 */
 /* signal handlers */
-typedef void (*sighandler1)(w2c_user*, uint32_t); /* type 2 */
-typedef void (*sighandler3)(w2c_user*, uint32_t, uint32_t, uint32_t); /* type 3 */
+typedef void (*sighandler1)(void*, uint32_t); /* type 2 */
+typedef void (*sighandler3)(void*, uint32_t, uint32_t, uint32_t); /* type 3 */
 
 
 void
@@ -70,13 +75,14 @@ wasmlinux_user_ctx_new32(struct user_context* cur, uint32_t stack){
     struct user_context* me;
 
     me = (struct user_context*)malloc(sizeof(struct user_context));
-    memcpy(&me->the_user, &cur->i->main_context.the_user, sizeof(w2c_user));
+    me->modulectx = malloc(cur->i->ctxsize);
+    memcpy(me->modulectx, cur->i->main_context.modulectx, cur->i->ctxsize);
     me->i = cur->i;
 
     /* Override stack pointer */
-    me->stack = stack;
-    me->the_user.w2c_env_0x5F_stack_pointer = 
-        &me->stack; /* FIXME: is bottom??? */
+    me->stack = stack; /* FIXME: is bottom??? */
+    wasmlinux_modquery__embedded(WASMLINUX_MODQUERY_CMD_SET_STACK, 0,
+                                 (uintptr_t)me->modulectx, (uintptr_t)&me->stack);
 
     /* Begin user context */
     wasmlinux_tls_set_context(me);
@@ -94,7 +100,8 @@ wasmlinux_user_ctx_exec32(int type, uint32_t func,
     cur = wasmlinux_tls_get_context();
     if(type == 0){
         if(func == 0){
-            w2c_user_0x5Fstart_c(&cur->the_user, param0);
+            wasmlinux_modquery__embedded(WASMLINUX_MODQUERY_CMD_RUN_ENTRYPOINT,
+                                         0, (uintptr_t)cur->modulectx, param0);
         }else{
             abort();
         }
@@ -103,15 +110,15 @@ wasmlinux_user_ctx_exec32(int type, uint32_t func,
         switch(type){
             case 1:
                 st = (startroutine)userfuncs->data[func].func;
-                st(&cur->the_user, param0);
+                st(cur->modulectx, param0);
                 break;
             case 2:
                 s1 = (sighandler1)userfuncs->data[func].func;
-                s1(&cur->the_user, param0);
+                s1(cur->modulectx, param0);
                 break;
             case 3:
                 s3 = (sighandler3)userfuncs->data[func].func;
-                s3(&cur->the_user, param0, param1, param2);
+                s3(cur->modulectx, param0, param1, param2);
                 break;
             default:
                 abort();
@@ -125,14 +132,25 @@ struct user_instance*
 wasmlinux_user_module_instantiate32(void* bogus, 
                                     uint32_t dataptr, uint32_t initial_stack){
     struct user_instance* ui;
+    size_t table_size;
+    /* FIXME: Resolve this on load */
+    const struct wasmlinux_user_bundle_info* bi;
+    bi = (const struct wasmlinux_user_bundle_info*)
+        wasmlinux_modquery__embedded(WASMLINUX_MODQUERY_CMD_BUNDLEINFO,
+                                     0, 0, 0);
+
+
     ui = (struct user_instance*)malloc(sizeof(struct user_instance));
     ui->main_context.i = ui;
+    ui->ctxsize = bi->mod[0].instance_size;
+    ui->main_context.modulectx = malloc(ui->ctxsize);
 
+    /* Fill in initial data */
     ui->main_context.stack = initial_stack;
     ui->userdata = dataptr;
 
-    /* FIXME: calc max size */
-    wasm_rt_allocate_funcref_table(&ui->userfuncs, 1024, 1024);
+    table_size = bi->mod[0].table_size;
+    wasm_rt_allocate_funcref_table(&ui->userfuncs, table_size, table_size);
 
     usertablebase = 0;
 
@@ -140,8 +158,8 @@ wasmlinux_user_module_instantiate32(void* bogus,
     wasmlinux_tls_set_context(&ui->main_context);
 
     /* Initialize storage */
-    wasm2c_user_instantiate(&ui->main_context.the_user, 0, 0);
-    w2c_user_0x5F_wasm_apply_data_relocs(&ui->main_context.the_user);
+    wasmlinux_modquery__embedded(WASMLINUX_MODQUERY_CMD_INSTANTIATE, 0,
+                                 (uintptr_t)ui->main_context.modulectx, 0);
 
     return ui;
 }

@@ -35,11 +35,8 @@ foreach(m ${modmap})
         set(hash ${CMAKE_MATCH_1})
         hashpath(hp ${hash})
         set(modname ${CMAKE_MATCH_2})
-        #list(APPEND usermods "${umdist}/wasmlinux/modcache/${hp}/${modname}.c")
-        # TENTATIVE!
-        list(APPEND usermods "${umdist}/wasmlinux/modcache/${hp}/user.c")
+        list(APPEND usermods "${umdist}/wasmlinux/modcache/${hp}/${modname}_base_w2c.c")
         list(APPEND userincdirs "${umdist}/wasmlinux/modcache/${hp}")
-
     endif()
 endforeach()
 
@@ -52,6 +49,7 @@ add_executable(runner
     mempoolite/mplite.c
     runner.cpp
     userctx_w2c.c
+    glue_modules.c
 )
 
 if(MSVC)
