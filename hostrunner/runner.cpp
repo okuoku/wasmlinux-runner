@@ -502,11 +502,10 @@ thr_user_vfork(w2c_kernel* kern, uint32_t procctx, uint32_t envblock){
         (void) wasmlinux_user_ctx_exec32(0 /* admin */,
                                          0 /* entrypoint */, envblock,
                                          0, 0, 0);
-        thr_tls_cleanup();
     } catch (thr_exit &req) {
         printf("Exiting thread(main thread).\n");
-        thr_tls_cleanup();
     }
+    thr_tls_cleanup();
     // FIXME: free envblock and stack at exit()
 }
 
@@ -804,11 +803,10 @@ thr_user(uint32_t procctx){
     /* Run usercode */
     try {
         wasmlinux_user_ctx_exec32(0, 0, envblock, 0, 0, 0);
-        thr_tls_cleanup();
     } catch (thr_exit &req) {
         printf("Exiting thread(main thread).\n");
-        thr_tls_cleanup();
     }
+    thr_tls_cleanup();
     // FIXME: free envblock at exit()
 }
 
@@ -879,11 +877,10 @@ thr_uthr(struct user_context* prevctx, struct userthr_args* args){
         (void) wasmlinux_user_ctx_exec32(1 /* thread entrypoint */, 
                                          fn, arg, 0, 0, 0);
 
-        thr_tls_cleanup();
     } catch (thr_exit &req) {
         printf("Exiting thread(user).\n");
-        thr_tls_cleanup();
     }
+    thr_tls_cleanup();
 }
 
 
@@ -1028,12 +1025,11 @@ thr_trampoline(int objid){
         my_thread_objid = objid;
         f = getfunc(objtbl[objid].obj.thr.func32);
         ret = f(my_linux, objtbl[objid].obj.thr.arg32);
-        thr_tls_cleanup();
         objtbl[objid].obj.thr.ret = ret;
     } catch (thr_exit &req) {
         printf("Exiting thread.\n");
-        thr_tls_cleanup();
     }
+    thr_tls_cleanup();
     return ret; /* debug */
 }
 
