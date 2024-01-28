@@ -865,6 +865,14 @@ startup(void){
         const char* a[] = { "mount", "-t",  "proc", "proc", "/proc", 0 };
         run_busybox(a);
     }
+    {
+        const char* a[] = { "ls", "-al", "/", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "ifconfig", "-a", 0 };
+        run_busybox(a);
+    }
     /*
     {
         const char* a[] = { "ifconfig", "-a", 0 };
