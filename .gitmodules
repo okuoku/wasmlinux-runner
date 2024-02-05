@@ -1,0 +1,3 @@
+[submodule "miniio"]
+	path = miniio
+	url = https://github.com/okuoku/miniio

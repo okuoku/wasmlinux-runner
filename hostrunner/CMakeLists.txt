@@ -1,6 +1,24 @@
 cmake_minimum_required(VERSION 3.12)
 project(linrunner C CXX)
 
+set(WITH_MINIIO ${CMAKE_CURRENT_LIST_DIR}/../miniio)
+set(IO_BACKEND uv) # miniio_XXX.c
+
+if(${IO_BACKEND} STREQUAL uv) 
+    if(WITH_UV)
+        add_subdirectory(${WITH_UV} uv)
+        if(CYGWIN)
+            # WAR: Cygwin libc cannot be used with gnu90
+            set_property(TARGET uv_a PROPERTY C_STANDARD 11)
+        endif()
+        set(uvlib uv_a)
+    else()
+        find_library(uv REQUIRED)
+        set(uvlib uv)
+    endif()
+endif()
+
+
 # tentative locations
 set(kmdist ${CMAKE_CURRENT_LIST_DIR}/../../kmdist)
 set(umdist ${CMAKE_CURRENT_LIST_DIR}/../../umdist)
@@ -40,9 +58,11 @@ foreach(m ${modmap})
     endif()
 endforeach()
 
-include_directories(${userincdirs})
+include_directories(${userincdirs}
+    ${WITH_MINIIO}/include)
 
 add_executable(runner
+    ${WITH_MINIIO}/src/miniio_${IO_BACKEND}.c
     ${wasm2c}/wasm-rt-impl.c
     ${kmdist}/kernel.c
     ${usermods}
@@ -51,6 +71,8 @@ add_executable(runner
     userctx_w2c.c
     glue_modules.c
 )
+
+target_link_libraries(runner ${uvlib})
 
 if(MSVC)
     # /EHs /EHc-: extern "C" may throw exceptions

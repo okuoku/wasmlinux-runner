@@ -11,6 +11,10 @@
 #include <condition_variable>
 #include <semaphore>
 
+/* Pseudo inetd */
+#include "miniio.h"
+const int TELNET_PORT = 5666;
+
 /* Kernel */
 #include "kernel.h"
 w2c_kernel the_linux;
@@ -650,7 +654,7 @@ debugdup3(uint32_t oldfd, uint32_t newfd, uint32_t flags){
     buf[1] = newfd;
     buf[2] = flags;
     res = runsyscall32(24 /* __NR_dup3 */, 3, ptr0);
-    printf("debug dup3 = %d\n", res);
+    printf("debug dup3 (%d,%d) = %d\n", oldfd, newfd, res);
     pool_free(buf);
     return res;
 }
@@ -786,6 +790,7 @@ thr_user(const char* argv[], uint32_t procctx){
     userstack = pool_lklptr(puserstack);
 
     ui = wasmlinux_user_module_instantiate32(0, userdata, userstack + (1024*1024));
+
     vfork_ctx = 0;
 
     /* Allocate linux context */
@@ -1297,6 +1302,394 @@ spawn_debugiothread(void){
     pool_free(buf);
 }
 
+struct pinetd_pair_s {
+    pinetd_pair_s* prev; /* Only R/W from main thread */
+    pinetd_pair_s* next; /* Only R/W from main thread */
+    std::condition_variable cv;
+    void* ctx;
+    void* handle;
+    void* chime;
+    uint32_t procctx;
+    uint32_t sock_host;
+    uint32_t sock_tgt;
+
+    /* Proc id */
+    int pid;
+
+    /* Read/Write buffer (Host->Linux) */
+    void* read_buffer;
+    void* write_buffer;
+    int hostwriteflag;
+
+    /* Read buffer (Linux->Host) */
+    int kernreadcnt;
+#define PINETD_BUF_SIZE (64*1024)
+    char readbuf[PINETD_BUF_SIZE];
+};
+
+std::mutex pinetd_action_mtx;
+static struct pinetd_pair_s* pinetd_pair_first;
+
+static void
+thr_reader(struct pinetd_pair_s* param){
+    int32_t* buf;
+    int32_t* xbuf;
+    uint32_t ptr0, ptr1;
+    int32_t res;
+    int i,r,chimed;
+
+    chimed = 0;
+    /* Allocate linux context */
+    newinstance();
+    prepare_newthread();
+
+    /* Close the other side now */
+    debugclose(param->sock_tgt);
+
+    /* Allocate syscall buffer */
+    buf = (int32_t*)pool_alloc(64);
+    xbuf = (int32_t*)pool_alloc(PINETD_BUF_SIZE);
+    ptr0 = pool_lklptr(&buf[0]);
+    ptr1 = pool_lklptr(xbuf);
+
+    for(;;){
+        buf[0] = param->sock_host;
+        buf[1] = ptr1;
+        buf[2] = PINETD_BUF_SIZE;
+        res = runsyscall32(63 /* __NR_read */, 3, ptr0);
+        printf("(inetd read) res = %d (from: %d, %x)\n", res, my_thread_objid, mytls[1]);
+        if(res < 0){
+            break;
+        }
+        if(res == 0){
+            continue;
+        }
+        if(res > PINETD_BUF_SIZE){
+            printf("???\n");
+            abort();
+        }
+        memcpy(param->readbuf, xbuf, res);
+        {
+            std::unique_lock<std::mutex> NN(pinetd_action_mtx);
+            param->kernreadcnt = res;
+            for(;;){
+                if(!chimed){
+                    if(param->hostwriteflag){
+                        /* Previous write is not completed */
+                    }else{
+                        /* We can trigger write */
+                        r = miniio_chime_trigger(param->ctx, param->chime);
+                        if(r){
+                            abort();
+                        }
+                        chimed = 1;
+                    }
+                }else if(!param->kernreadcnt){
+                    /* issue next read() */
+                    break;
+                }
+                param->cv.wait(NN);
+            }
+        }
+    }
+
+    pool_free(buf);
+    pool_free(xbuf);
+    thr_tls_cleanup();
+}
+
+static void
+thr_pinetd_proc(struct pinetd_pair_s* param){
+    uint32_t procctx;
+    struct user_instance* ui;
+    void* puserdata;
+    void* puserstack;
+    uint32_t userdata, userstack;
+    uint32_t envblock;
+    uint32_t ret;
+    const char* argv[] = { "telnetd", "-i", 0 };
+    const char* envp[] = {"PATH=/bin:/sbin", 0};
+    const size_t STACK_SIZE = 1024*1024;
+
+
+    /* Instantiate and assign user module */
+    puserdata = pool_alloc(199980 /* FIXME */);
+    puserstack = pool_alloc(STACK_SIZE);
+    userdata = pool_lklptr(puserdata);
+    userstack = pool_lklptr(puserstack);
+
+    ui = wasmlinux_user_module_instantiate32(0, userdata, userstack + (1024*1024));
+    if(vfork_ctx){
+        abort();
+    }
+    vfork_ctx = 0;
+
+    /* Allocate linux context */
+    newinstance();
+    prepare_newthread();
+
+    /* Assign process ctx */
+    newtask_apply(param->procctx);
+
+    /* Setup initial stdin/out */
+    ret = debugdup3(param->sock_tgt, 0, 0);
+    printf("(inetd)  stdin => 0 : %d\n", ret);
+    ret = debugdup3(0, 1, 0);
+    printf("(inetd) stdout => 1 : %d\n", ret);
+    ret = debugdup3(0, 2, 0);
+    printf("(inetd) stderr => 2 : %d\n", ret);
+    debugclose(param->sock_tgt);
+    debugclose(param->sock_host);
+
+    /* MUSL startup */
+    envblock = create_envblock(argv, envp);
+    /* Run usercode */
+    try {
+        wasmlinux_user_ctx_exec32(0, 0, envblock, 0, 0, 0);
+    } catch (thr_exit &req) {
+        printf("Exiting thread(inetd process main thread).\n");
+    }
+    thr_tls_cleanup();
+    pool_free(puserdata);
+    pool_free(puserstack);
+    pool_free(pool_hostptr(envblock));
+}
+
+static void
+pinetd_alloc(void* ctx, void* handle){ /* ACTION LOCKED */
+    int i,r;
+    uint32_t ptr0, ptr1;
+    int32_t ret;
+    int32_t* buf;
+    void* sock;
+    struct pinetd_pair_s* pair;
+    std::thread* reader;
+    std::thread* proc;
+    std::thread* debugprinter;
+
+    pair = new pinetd_pair_s();
+    pair->next = pinetd_pair_first;
+    pair->prev = 0;
+    pair->kernreadcnt = 0;
+    pair->hostwriteflag = 0;
+    if(pair->next){
+        pair->next->prev = pair;
+    }
+    pinetd_pair_first = pair;
+
+    pair->ctx = ctx;
+    pair->handle = miniio_tcp_accept(ctx, handle, pair);
+    pair->chime = miniio_chime_new(ctx, pair);
+    pair->write_buffer = miniio_buffer_create(ctx, PINETD_BUF_SIZE, pair);
+
+    /* Allocate syscall buffer */
+    buf = (int32_t*)pool_alloc(sizeof(int32_t)*32);
+
+    /* Generate Socket pair */
+    ptr0 = pool_lklptr(&buf[0]);
+    ptr1 = pool_lklptr(&buf[4]);
+    buf[0] = 1; /* Domain(UNIX) */
+    buf[1] = 1; /* Type(STREAM) */
+    buf[2] = 0; /* Protocol */
+    buf[3] = ptr1; /* Pair */
+
+    ret = runsyscall32(199 /* socketpair */, 2, ptr0);
+    printf("SOCKPAIR: %d, %d, %d\n", ret, buf[4], buf[5]);
+    pair->sock_host = buf[4];
+    pair->sock_tgt = buf[5];
+
+    /* Fork process state */
+    pair->procctx = newtask_process();
+
+    /* Spawn stdout-reader */
+    reader = new std::thread(thr_reader, pair);
+    reader->detach();
+
+
+    /* Spawn process */
+    proc = new std::thread(thr_pinetd_proc, pair);
+    proc->detach();
+
+    /* Start read */
+    r = miniio_start_read(ctx, pair->handle);
+    if(r){
+        abort();
+    }
+
+    pool_free(buf);
+}
+
+static void
+thr_pinetd_main(void){
+    int r;
+    void* ctx;
+    void* param;
+    void* listen_sock;
+    void* mio_buf;
+    void* mio_data;
+    uintptr_t mio_size;
+    int32_t* buf;
+    uint32_t buf_ptr;
+    int32_t* xbuf;
+    uint32_t xbuf_ptr;
+    struct pinetd_pair_s* pair;
+#define EVBUF_SIZE 512
+    uintptr_t evbuf[EVBUF_SIZE];
+    uint32_t evsiz, evcur;
+    uint32_t cev, cev_size, cev_code;
+    uintptr_t* cev_param;
+    int32_t res;
+
+    pinetd_pair_first = 0;
+
+    ctx = miniio_ioctx_create();
+
+#if 0 // FIXME: moved to main thread
+    /* Allocate linux context */
+    newinstance();
+    prepare_newthread();
+#endif
+
+    /* Allocate syscall bounce buffers */
+    buf = (int32_t*)pool_alloc(sizeof(int32_t)*32);
+    xbuf = (int32_t*)pool_alloc(PINETD_BUF_SIZE);
+    buf_ptr = pool_lklptr(buf);
+    xbuf_ptr = pool_lklptr(xbuf);
+
+
+    /* Add listen port */
+    param = miniio_net_param_create(ctx, 0);
+    miniio_net_param_hostname(ctx, param, "127.0.0.1");
+    miniio_net_param_port(ctx, param, TELNET_PORT);
+    miniio_net_param_name_resolve(ctx, param);
+
+    for(;;){
+        r = miniio_ioctx_process(ctx);
+        /* FIXME: Exit loop if no event triggered */
+        pinetd_action_mtx.lock();
+        r = miniio_get_events(ctx, evbuf, EVBUF_SIZE, &evsiz, &evcur);
+        if(r){
+            abort();
+        }
+        if(evcur >= EVBUF_SIZE){
+            /* Too large event queued: something wrong */
+            abort();
+        }
+        evcur = 0;
+        cev = 0;
+        for(;;){
+            if(cev >= evsiz){
+                break;
+            }
+            cev_size = evbuf[cev];
+            for(int i=0;i!=cev_size;i++){
+                printf("MINIIO[%d]: %ld\n", i, evbuf[cev+i]);
+            }
+            printf("\n");
+            cev_code = evbuf[cev+1];
+            cev_param = &evbuf[cev+2];
+            cev += cev_size;
+            switch(cev_code){
+                case MINIIO_EVT_NETRESOLVE:
+                    if(cev_param[0] != (uintptr_t)param){
+                        /* stray event..? */
+                        abort();
+                    }
+                    listen_sock = miniio_tcp_create(ctx, param, 0, 0);
+                    if(! listen_sock){
+                        abort();
+                    }
+                    r = miniio_tcp_listen(ctx, listen_sock);
+                    if(r){
+                        abort();
+                    }
+                    break;
+
+                case MINIIO_EVT_CONNECT_INCOMMING:
+                    if(cev_param[0] != (uintptr_t)listen_sock){
+                        /* stray event..? */
+                        abort();
+                    }
+                    pinetd_alloc(ctx, listen_sock);
+                    break;
+
+                case MINIIO_EVT_HANDLE_CLOSE:
+                case MINIIO_EVT_SHUTDOWN:
+                case MINIIO_EVT_READ_EOF:
+                case MINIIO_EVT_READ_STOP:
+                case MINIIO_EVT_READ_ERROR:
+                    printf("FIXME: Free resources! %d\n", cev_code);
+                    break;
+
+                case MINIIO_EVT_WRITE_COMPLETE:
+                    pair = (struct pinetd_pair_s*)cev_param[1];
+                    pair->hostwriteflag = 0;
+                    pair->cv.notify_one();
+                    break;
+
+                case MINIIO_EVT_READ_COMPLETE:
+                    /* Host => Linux proxy */
+                    pair = (struct pinetd_pair_s*)cev_param[1];
+                    mio_buf = (void*)cev_param[2];
+                    mio_size = cev_param[4];
+                    mio_data = miniio_buffer_lock(ctx, mio_buf,
+                                                  cev_param[3],
+                                                  mio_size);
+                    memcpy(xbuf, mio_data, mio_size);
+                    miniio_buffer_unlock(ctx, mio_buf);
+                    miniio_buffer_destroy(ctx, mio_buf);
+
+                    buf[0] = pair->sock_host;
+                    buf[1] = xbuf_ptr;
+                    buf[2] = mio_size;
+                    res = runsyscall32(64 /* __NR_write */, 3, buf_ptr);
+                    printf("(inetd) PROXY OUT %d\n",res);
+                    break;
+
+                case MINIIO_EVT_CHIME:
+                    /* Linux => Host proxy */
+                    pair = (struct pinetd_pair_s*)cev_param[1];
+                    if(pair->hostwriteflag){
+                        /* Overwrapped write request */
+                        abort();
+                    }
+                    pair->hostwriteflag = 1;
+                    mio_data = miniio_buffer_lock(ctx, 
+                                                  pair->write_buffer,
+                                                  0, pair->kernreadcnt);
+                    memcpy(mio_data, pair->readbuf, pair->kernreadcnt);
+                    r = miniio_write(ctx, pair->handle, pair->write_buffer,
+                                     0, pair->kernreadcnt);
+                    pair->kernreadcnt = 0;
+                    pair->cv.notify_one();
+                    break;
+
+                    /* Unused, shoud not happen */
+                case MINIIO_EVT_CONNECT_OUTGOING:
+                case MINIIO_EVT_TIMER:
+                case MINIIO_EVT_PROCESS_EXIT:
+                    abort();
+                    break;
+
+                default:
+                    printf("Warning: Unknown miniio event %ld\n",
+                           cev_code);
+                    break;
+            }
+        }
+        pinetd_action_mtx.unlock();
+    }
+    pool_free(buf);
+    pool_free(xbuf);
+}
+
+void
+spawn_pinetd(void){
+    std::thread* thr;
+    thr = new std::thread(thr_pinetd_main);
+    thr->detach();
+}
+
 void
 mod_memorymgr(uint64_t* in, uint64_t* out){
     void* ptr;
@@ -1584,13 +1977,22 @@ main(int ac, char** av){
 
     printf("(init) pid = %d\n", debuggetpid());
 
-    /* Create user program */
+    /* Early startup */
     startup();
+
+    /* FIXME: Enter pinetd loop directly, as it seems we cannot use
+     *        procctx from another thread */
+    thr_pinetd_main();
+
+#if 0
+    /* Create pseudo inetd thread */
+    spawn_pinetd();
 
     /* Sleep */
     for(;;){
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+#endif
 
     return 0;
 }
