@@ -867,7 +867,19 @@ startup(void){
         run_busybox(a);
     }
     {
+        const char* a[] = { "mkdir", "-m", "755", "-p", "/dev/pts", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mknod", "-m", "666", "/dev/ptmx", "c", "5", "2", 0 };
+        run_busybox(a);
+    }
+    {
         const char* a[] = { "mount", "-t",  "proc", "proc", "/proc", 0 };
+        run_busybox(a);
+    }
+    {
+        const char* a[] = { "mount", "-t",  "devpts", "devpts", "/dev/pts", "-onoexec,nosuid", 0 };
         run_busybox(a);
     }
     {
@@ -1338,7 +1350,6 @@ thr_reader(struct pinetd_pair_s* param){
     int32_t res;
     int i,r,chimed;
 
-    chimed = 0;
     /* Allocate linux context */
     newinstance();
     prepare_newthread();
@@ -1353,6 +1364,7 @@ thr_reader(struct pinetd_pair_s* param){
     ptr1 = pool_lklptr(xbuf);
 
     for(;;){
+        chimed = 0;
         buf[0] = param->sock_host;
         buf[1] = ptr1;
         buf[2] = PINETD_BUF_SIZE;
@@ -1407,7 +1419,7 @@ thr_pinetd_proc(struct pinetd_pair_s* param){
     uint32_t userdata, userstack;
     uint32_t envblock;
     uint32_t ret;
-    const char* argv[] = { "telnetd", "-i", 0 };
+    const char* argv[] = { "telnetd", "-i", "-l", "/bin/sh", 0 };
     const char* envp[] = {"PATH=/bin:/sbin", 0};
     const size_t STACK_SIZE = 1024*1024;
 
