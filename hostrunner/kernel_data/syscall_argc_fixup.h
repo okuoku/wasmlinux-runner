@@ -12,3 +12,6 @@ SYSCALL_ARGC(LKL__NR_geteuid, 0)
 SYSCALL_ARGC(LKL__NR_getgid, 0)
 SYSCALL_ARGC(LKL__NR_getegid, 0)
 SYSCALL_ARGC(LKL__NR_gettid, 0)
+
+SYSCALL_ARGC(LKL__NR3264_ftruncate, 3)
+
