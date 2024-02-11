@@ -72,6 +72,9 @@ add_executable(runner
     glue_modules.c
 )
 
+# FIXME: Migrate to WASM Exceptions
+target_compile_definitions(runner PRIVATE WASM_RT_USE_STACK_DEPTH_COUNT=0)
+
 target_link_libraries(runner ${uvlib})
 
 if(MSVC)
