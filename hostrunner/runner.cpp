@@ -149,6 +149,7 @@ delobj(int idx){
 
 /* Kernel TLS */
 typedef uint32_t (*funcptr)(w2c_kernel*, uint32_t);
+typedef void (*funcptr_void)(w2c_kernel*, uint32_t);
 typedef void (*funcptr_cont)(w2c_kernel*);
 
 static funcptr
@@ -1110,22 +1111,20 @@ mod_syncobjects(uint64_t* in, uint64_t* out){
     }
 }
 
-static uintptr_t
+static void
 thr_trampoline(int objid){
-    funcptr f;
-    uint32_t ret = 0;
+    funcptr_void f;
     try {
         newinstance();
         memset(mytls, 0, sizeof(mytls));
         my_thread_objid = objid;
-        f = getfunc(objtbl[objid].obj.thr.func32);
-        ret = f(my_linux, objtbl[objid].obj.thr.arg32);
-        objtbl[objid].obj.thr.ret = ret;
+        f = (funcptr_void)getfunc(objtbl[objid].obj.thr.func32);
+        f(my_linux, objtbl[objid].obj.thr.arg32);
+        objtbl[objid].obj.thr.ret = 0;
     } catch (thr_exit &req) {
         printf("Exiting thread.\n");
     }
     thr_tls_cleanup();
-    return ret; /* debug */
 }
 
 static void
