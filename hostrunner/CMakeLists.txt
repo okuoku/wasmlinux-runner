@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.12)
 project(linrunner C CXX)
 
 set(WITH_MINIIO ${CMAKE_CURRENT_LIST_DIR}/../miniio)
-set(IO_BACKEND uv) # miniio_XXX.c
+
+if(EMSCRIPTEN)
+    set(IO_BACKEND stub)
+else()
+    set(IO_BACKEND uv) 
+endif()
 
 if(${IO_BACKEND} STREQUAL uv) 
     if(WITH_UV)
@@ -61,6 +66,10 @@ endforeach()
 include_directories(${userincdirs}
     ${WITH_MINIIO}/include)
 
+if(EMSCRIPTEN)
+    set(CMAKE_EXECUTABLE_SUFFIX ".html")
+endif()
+
 add_executable(runner
     ${WITH_MINIIO}/src/miniio_${IO_BACKEND}.c
     ${wasm2c}/wasm-rt-impl.c
@@ -72,10 +81,23 @@ add_executable(runner
     glue_modules.c
 )
 
+if(EMSCRIPTEN)
+    target_compile_options(runner
+        PRIVATE -pthread -fexceptions -fwasm-exceptions)
+    set_property(TARGET runner
+        PROPERTY LINK_OPTIONS -pthread -sPROXY_TO_PTHREAD 
+        -fwasm-exceptions
+        # 512MiB
+        -sINITIAL_MEMORY=536870912)
+
+endif()
+
 # FIXME: Migrate to WASM Exceptions
 target_compile_definitions(runner PRIVATE WASM_RT_USE_STACK_DEPTH_COUNT=0)
 
-target_link_libraries(runner ${uvlib})
+if(${IO_BACKEND} STREQUAL uv)
+    target_link_libraries(runner ${uvlib})
+endif()
 
 if(MSVC)
     # /EHs /EHc-: extern "C" may throw exceptions
