@@ -1969,8 +1969,8 @@ main(int ac, char** av){
 
     /* Init memory pool */
     mem = &the_linux.w2c_memory;
-    startpages = wasm_rt_grow_memory(mem, 4096 * 4);
-    maxpages = startpages + 4096 * 4;
+    startpages = wasm_rt_grow_memory(mem, 2048);
+    maxpages = startpages + 2048;
 
     printf("memmgr region = ptr: %p pages: %ld - %ld\n", mem->data, 
            startpages, maxpages);
