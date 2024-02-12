@@ -1749,9 +1749,8 @@ current_ns(void){
 
 static void
 thr_timer(int objid){
-    funcptr f;
+    funcptr_void f;
     uint32_t arg32;
-    uint32_t ret;
     uint64_t wait_for;
     std::mutex* mtx;
     std::condition_variable* cv;
@@ -1759,7 +1758,7 @@ thr_timer(int objid){
     newinstance();
     prepare_newthread();
 
-    f = getfunc(objtbl[objid].obj.timer.func32);
+    f = (funcptr_void)getfunc(objtbl[objid].obj.timer.func32);
     arg32 = objtbl[objid].obj.timer.arg32;
 
     cv = objtbl[objid].obj.timer.cv;
@@ -1784,7 +1783,7 @@ thr_timer(int objid){
                 if(s == std::cv_status::timeout){
                     //printf("Fire: %d\n",objtbl[objid].obj.timer.func32);
                     mtx->unlock();
-                    ret = f(my_linux, arg32);
+                    f(my_linux, arg32);
                     mtx->lock();
                     //printf("Done: %d\n",objtbl[objid].obj.timer.func32);
                 }else{
