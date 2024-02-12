@@ -334,6 +334,8 @@ newtask_apply(uint32_t ctx){
 }
 
 std::mutex instancemtx;
+uint64_t current_top_page = 0;
+uint64_t max_top_page = 0;
 static void
 newinstance(){
     wasm_rt_memory_t* mem;
@@ -349,7 +351,12 @@ newinstance(){
     // FIXME: Insert guard page
     // FIXME: Leaks stack memory and instance
     mem = &the_linux.w2c_memory;
-    currentpages = wasm_rt_grow_memory(mem, STACK_PAGES);
+    currentpages = current_top_page;
+    current_top_page += STACK_PAGES;
+    if(current_top_page > max_top_page){
+        printf("kernel stack region overflow!");
+        abort();
+    }
 
     /* Allocate new instance */
     me = (w2c_kernel*)malloc(sizeof(w2c_kernel));
@@ -1967,8 +1974,10 @@ main(int ac, char** av){
 
     /* Init memory pool */
     mem = &the_linux.w2c_memory;
-    startpages = wasm_rt_grow_memory(mem, 2048);
+    startpages = wasm_rt_grow_memory(mem, 2048 + 2048);
     maxpages = startpages + 2048;
+    current_top_page = maxpages;
+    max_top_page = current_top_page + 2048;
 
     printf("memmgr region = ptr: %p pages: %ld - %ld\n", mem->data, 
            startpages, maxpages);
