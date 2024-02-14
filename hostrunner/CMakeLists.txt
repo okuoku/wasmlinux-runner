@@ -83,11 +83,13 @@ add_executable(runner
 
 if(EMSCRIPTEN)
     target_compile_options(runner
-        PRIVATE -pthread -fexceptions -fwasm-exceptions)
+        # dwarf-5 is not compatible with wasm-opt (for now)
+        PRIVATE -pthread -fexceptions -fwasm-exceptions -gsplit-dwarf)
     set_property(TARGET runner
         PROPERTY LINK_OPTIONS -pthread -sPROXY_TO_PTHREAD 
         -fwasm-exceptions
         # 512MiB
+        -sWASM_BIGINT
         -sINITIAL_MEMORY=536870912)
 
 endif()
