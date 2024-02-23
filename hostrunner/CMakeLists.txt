@@ -23,6 +23,9 @@ if(${IO_BACKEND} STREQUAL uv)
     endif()
 endif()
 
+if(UNIX OR EMSCRIPTEN)
+    add_subdirectory(../minitelnet minitelnet)
+endif()
 
 # tentative locations
 set(kmdist ${CMAKE_CURRENT_LIST_DIR}/../../kmdist)

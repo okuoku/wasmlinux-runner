@@ -1,3 +1,6 @@
 [submodule "miniio"]
 	path = miniio
 	url = https://github.com/okuoku/miniio
+[submodule "minitelnet"]
+	path = minitelnet
+	url = https://github.com/okuoku/minitelnet
