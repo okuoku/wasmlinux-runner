@@ -11,6 +11,8 @@
 #include <condition_variable>
 #include <semaphore>
 
+#define PCK printf
+
 /* Pseudo inetd */
 #include "miniio.h"
 const int TELNET_PORT = 5666;
@@ -155,24 +157,24 @@ typedef void (*funcptr_cont)(w2c_kernel*);
 static funcptr
 getfunc(int idx){
     void* p;
-    //printf("Converting %d ...", idx);
+    //PCK("Converting %d ...", idx);
     if(idx >= the_linux.w2c_T0.size){
         abort();
     }
     p = (void*)the_linux.w2c_T0.data[idx].func;
-    //printf(" %p\n", p);
+    //PCK(" %p\n", p);
     return (funcptr)p;
 }
 
 static funcptr_cont
 getfunc_cont(int idx){
     void* p;
-    //printf("Converting %d ...", idx);
+    //PCK("Converting %d ...", idx);
     if(idx >= the_linux.w2c_T0.size){
         abort();
     }
     p = (void*)the_linux.w2c_T0.data[idx].func;
-    //printf(" %p\n", p);
+    //PCK(" %p\n", p);
     return (funcptr_cont)p;
 }
 
@@ -213,7 +215,7 @@ thr_tls_get(uint32_t key){
     if(key >= MAX_MYTLS){
         abort();
     }
-    printf("TLS[%d]: %d -> %x\n",my_thread_objid,key,mytls[key]);
+    PCK("TLS[%d]: %d -> %x\n",my_thread_objid,key,mytls[key]);
     return mytls[key];
 }
 
@@ -243,7 +245,7 @@ thr_tls_cleanup(void){
                     if(f){
                         (void)f(my_linux, mytls[i]);
                     }else{
-                        printf("???: TLS destructor %d did not found.\n", objtbl[funcid].obj.thr.func32);
+                        PCK("???: TLS destructor %d did not found.\n", objtbl[funcid].obj.thr.func32);
                     }
                     mytls[i] = 0;
                     runloop = 1;
@@ -354,7 +356,7 @@ newinstance(){
     currentpages = current_top_page;
     current_top_page += STACK_PAGES;
     if(current_top_page > max_top_page){
-        printf("kernel stack region overflow!");
+        PCK("kernel stack region overflow!");
         abort();
     }
 
@@ -370,7 +372,7 @@ newinstance(){
     me->w2c_0x5F_stack_pointer = (currentpages + STACK_PAGES) * WASM_PAGE_SIZE - 256 /* Red zone + 128(unused) */;
     me->w2c_T0.max_size = me->w2c_T0.size;
     me->w2c_T0.data = newfuncref;
-    //printf("New stack pointer = %d\n", me->w2c_0x5F_stack_pointer);
+    //PCK("New stack pointer = %d\n", me->w2c_0x5F_stack_pointer);
 
     my_linux = me;
 }
@@ -388,7 +390,7 @@ handlesignal(void){
     memset(buf, 0, 128*4);
     w2c_kernel_taskmgmt(my_linux, 5, ptr0, 0, 0);
     for(i=0;i!=13;i++){
-        printf("[%03d]: 0x%08x %d\n", i, buf[i], buf[i]);
+        PCK("[%03d]: 0x%08x %d\n", i, buf[i], buf[i]);
     }
 
     /* Call signal handler */
@@ -473,7 +475,7 @@ create_envblock_frompool(const uint32_t argv[], const uint32_t envp[]){
         memcpy(buf + o, x, s);
         o += (s + 1); /* NUL */
     }
-    printf("argc,envc = %ld,%ld\n",argc,envc);
+    PCK("argc,envc = %ld,%ld\n",argc,envc);
     return ptr0;
 }
 
@@ -520,7 +522,7 @@ thr_user_vfork(w2c_kernel* kern, uint32_t procctx, uint32_t envblock){
                                          0 /* entrypoint */, envblock,
                                          0, 0, 0);
     } catch (thr_exit &req) {
-        printf("Exiting thread(main thread).\n");
+        PCK("Exiting thread(main thread).\n");
     }
     thr_tls_cleanup();
     pool_free(puserdata); // FIXME: Should move to module instance
@@ -539,7 +541,7 @@ wasmlinux_run_to_execve(jmp_buf* jb){
     vfork_ctx->parent_process_ctx = current_process_ctx;
 
     procctx = newtask_process();
-    printf("procctx = %d\n", procctx);
+    PCK("procctx = %d\n", procctx);
 
     /* Switch to new kernel instance */
     newinstance();
@@ -565,7 +567,7 @@ emul_execve(uint32_t nargs, uint32_t in){
 
     if(!vfork_ctx){
         /* FIXME: Replace current image */
-        printf("not implemented.\n");
+        PCK("not implemented.\n");
         abort();
     }
     mypid = runsyscall32(172 /* __NR_getpid */, 0, 0);
@@ -596,7 +598,7 @@ emul_execve(uint32_t nargs, uint32_t in){
 
 static uint32_t /* -errno */
 emul_clone(uint32_t nargs, uint32_t in){
-    printf("not implemented.\n");
+    PCK("not implemented.\n");
     abort();
 }
 
@@ -613,22 +615,22 @@ runsyscall32(uint32_t no, uint32_t nargs, uint32_t in){
             r = emul_execve(nargs, in);
             break;
         case LKL__NR_execveat:
-            printf("not implemented.\n");
+            PCK("not implemented.\n");
             abort();
             break;
         default:
             true_argc = syscall_argc_tbl[no];
             if(true_argc == -1){
-                printf("Unknown syscall! (%d)\n", no);
+                PCK("Unknown syscall! (%d)\n", no);
                 true_argc = nargs;
             }else{
                 if(true_argc != nargs){
-                    printf("Override syscall args (%d: %d => %d)\n", no, nargs, true_argc);
+                    PCK("Override syscall args (%d: %d => %d)\n", no, nargs, true_argc);
                 }
             }
             /* Use LKL */
             r = w2c_kernel_syscall(my_linux, no, true_argc, in);
-            printf("Thread: %d Call = %d Ret = %d\n", my_thread_objid, no, r);
+            PCK("Thread: %d Call = %d Ret = %d\n", my_thread_objid, no, r);
             break;
     }
     switch(r){
@@ -662,7 +664,7 @@ debugdup3(uint32_t oldfd, uint32_t newfd, uint32_t flags){
     buf[1] = newfd;
     buf[2] = flags;
     res = runsyscall32(24 /* __NR_dup3 */, 3, ptr0);
-    printf("debug dup3 (%d,%d) = %d\n", oldfd, newfd, res);
+    PCK("debug dup3 (%d,%d) = %d\n", oldfd, newfd, res);
     pool_free(buf);
     return res;
 }
@@ -677,7 +679,7 @@ debugclose(uint32_t fd){
     ptr0 = pool_lklptr(&buf[0]);
     buf[0] = fd;
     res = runsyscall32(57 /* __NR_close */, 1, ptr0);
-    printf("debug close(%d) = %d\n", fd, res);
+    PCK("debug close(%d) = %d\n", fd, res);
     pool_free(buf);
     return;
 }
@@ -694,7 +696,7 @@ w2c_env_memory(struct w2c_env* bogus){
 extern "C" uint32_t
 w2c_env_wasmlinux_syscall32(struct w2c_env* env, uint32_t argc, uint32_t no,
                             uint32_t args){
-    printf("(user) syscall = %d\n", no);
+    PCK("(user) syscall = %d\n", no);
     return runsyscall32(no, argc, args);
 }
 
@@ -702,11 +704,11 @@ thread_local uint32_t usertls;
 extern "C" uint32_t
 w2c_env_wasmlinux_tlsrw32(struct w2c_env* env, uint32_t op, uint32_t val){
     if(op == 0){
-        printf("USERTLS[%d] := %x\n", my_thread_objid, val);
+        PCK("USERTLS[%d] := %x\n", my_thread_objid, val);
         usertls = val;
         return 0;
     }else if(op == 1){
-        printf("USERTLS[%d] = %x\n", my_thread_objid, usertls);
+        PCK("USERTLS[%d] = %x\n", my_thread_objid, usertls);
         return usertls;
     }else{
         abort();
@@ -775,7 +777,7 @@ create_envblock(const char* argv[], const char* envp[]){
         memcpy(buf + o, envp[i], s);
         o += (s + 1); /* NUL */
     }
-    printf("argc,envc = %ld,%ld\n",argc,envc);
+    PCK("argc,envc = %ld,%ld\n",argc,envc);
     return ptr0;
 }
 
@@ -810,15 +812,15 @@ thr_user(const char* argv[], uint32_t procctx){
 
     /* Setup initial stdin/out */
     ret = debugdup3(kfd_stdout, 10, 0);
-    printf("(user) stdout => 10 : %d\n", ret);
+    PCK("(user) stdout => 10 : %d\n", ret);
     ret = debugdup3(kfd_stderr, 11, 0);
-    printf("(user) stderr => 11 : %d\n", ret);
+    PCK("(user) stderr => 11 : %d\n", ret);
     debugclose(kfd_stdout);
     debugclose(kfd_stderr);
     ret = debugdup3(10, 1, 0);
-    printf("(user) 10 => stdout : %d\n", ret);
+    PCK("(user) 10 => stdout : %d\n", ret);
     ret = debugdup3(11, 2, 0);
-    printf("(user) 11 => stderr : %d\n", ret);
+    PCK("(user) 11 => stderr : %d\n", ret);
 
 
     /* MUSL startup */
@@ -827,7 +829,7 @@ thr_user(const char* argv[], uint32_t procctx){
     try {
         wasmlinux_user_ctx_exec32(0, 0, envblock, 0, 0, 0);
     } catch (thr_exit &req) {
-        printf("Exiting thread(main thread).\n");
+        PCK("Exiting thread(main thread).\n");
     }
     thr_tls_cleanup();
     pool_free(puserdata);
@@ -954,7 +956,7 @@ thr_uthr(struct user_context* prevctx, struct userthr_args* args){
     prepare_newthread();
 
     /* Set TLS */
-    printf("USERTLS[%d] := %x (init)\n", my_thread_objid, args->tls);
+    PCK("USERTLS[%d] := %x (init)\n", my_thread_objid, args->tls);
     usertls = args->tls;
 
     /* Assign process ctx */
@@ -962,7 +964,7 @@ thr_uthr(struct user_context* prevctx, struct userthr_args* args){
 
     /* Report back pid */
     tid = runsyscall32(178 /* __NR_gettid */, 0, 0);
-    printf("Thread spawn. tid = %d, ctx = %x\n", tid, args->ctx);
+    PCK("Thread spawn. tid = %d, ctx = %x\n", tid, args->ctx);
     {
         std::unique_lock<std::mutex> NN(*args->mtx);
         args->pid = tid;
@@ -981,7 +983,7 @@ thr_uthr(struct user_context* prevctx, struct userthr_args* args){
                                          fn, arg, 0, 0, 0);
 
     } catch (thr_exit &req) {
-        printf("Exiting thread(user).\n");
+        PCK("Exiting thread(user).\n");
     }
     thr_tls_cleanup();
 }
@@ -1005,7 +1007,7 @@ w2c_env_wasmlinux_clone32(struct w2c_env* env,
     if(flags & LKL_CLONE_THREAD){
         /* Thread creation */
         thrargs = (struct userthr_args*)malloc(sizeof(struct userthr_args));
-        printf("TLS = %x\n",tls);
+        PCK("TLS = %x\n",tls);
         if(myflags & LKL_CLONE_SETTLS){
             thrargs->tls = tls;
         }else{
@@ -1029,7 +1031,7 @@ w2c_env_wasmlinux_clone32(struct w2c_env* env,
         free(thrargs);
     }else{
         /* Process creation */
-        printf("Unimpl.\n");
+        PCK("Unimpl.\n");
         abort();
     }
     return pid;
@@ -1129,7 +1131,7 @@ thr_trampoline(int objid){
         f(my_linux, objtbl[objid].obj.thr.arg32);
         objtbl[objid].obj.thr.ret = 0;
     } catch (thr_exit &req) {
-        printf("Exiting thread.\n");
+        PCK("Exiting thread.\n");
     }
     thr_tls_cleanup();
 }
@@ -1238,12 +1240,12 @@ thr_debugprintthread(uint32_t fd, int ident){
         buf[1] = ptr1;
         buf[2] = 2000;
         res = runsyscall32(63 /* __NR_read */, 3, ptr0);
-        printf("res = %d (from: %d, %x)\n", res, my_thread_objid, mytls[1]);
+        PCK("res = %d (from: %d, %x)\n", res, my_thread_objid, mytls[1]);
         if(res < 0){
             break;
         }
         if(res > 2000){
-            printf("???\n");
+            PCK("???\n");
             abort();
         }
         memcpy(linebuf, (void*)&buf[3], res);
@@ -1253,7 +1255,7 @@ thr_debugprintthread(uint32_t fd, int ident){
             switch(linebuf[i]){
                 case '\n':
                     linebuf[i] = 0;
-                    printf("%s: %s\n", header,
+                    PCK("%s: %s\n", header,
                            (char*)&linebuf[r]);
                     r = i+1;
                     break;
@@ -1262,7 +1264,7 @@ thr_debugprintthread(uint32_t fd, int ident){
             }
         }
         if(r<i){
-            printf("%s: %s\n", header, (char*)&linebuf[r]);
+            PCK("%s: %s\n", header, (char*)&linebuf[r]);
         }
     }
 
@@ -1284,7 +1286,7 @@ debugwrite(uint32_t fd, const char* data, size_t len){
     buf[1] = ptr1;
     buf[2] = len;
     res = runsyscall32(64 /* __NR_write */, 3, ptr0);
-    printf("write res = %d\n", res);
+    PCK("write res = %d\n", res);
     pool_free(buf);
 }
 
@@ -1305,7 +1307,7 @@ spawn_debugiothread(void){
         buf[1] = 0; /* flags */
 
         ret = runsyscall32(59 /* pipe2 */, 2, ptr0);
-        printf("Ret: %d, %d, %d\n", ret, buf[2], buf[3]);
+        PCK("Ret: %d, %d, %d\n", ret, buf[2], buf[3]);
 
         /* Spawn handler */
         thr = new std::thread(thr_debugprintthread, buf[2], i);
@@ -1375,7 +1377,7 @@ thr_reader(struct pinetd_pair_s* param){
         buf[1] = ptr1;
         buf[2] = PINETD_BUF_SIZE;
         res = runsyscall32(63 /* __NR_read */, 3, ptr0);
-        printf("(inetd read) res = %d (from: %d, %x)\n", res, my_thread_objid, mytls[1]);
+        PCK("(inetd read) res = %d (from: %d, %x)\n", res, my_thread_objid, mytls[1]);
         if(res < 0){
             break;
         }
@@ -1383,7 +1385,7 @@ thr_reader(struct pinetd_pair_s* param){
             continue;
         }
         if(res > PINETD_BUF_SIZE){
-            printf("???\n");
+            PCK("???\n");
             abort();
         }
         memcpy(param->readbuf, xbuf, res);
@@ -1451,11 +1453,11 @@ thr_pinetd_proc(struct pinetd_pair_s* param){
 
     /* Setup initial stdin/out */
     ret = debugdup3(param->sock_tgt, 0, 0);
-    printf("(inetd)  stdin => 0 : %d\n", ret);
+    PCK("(inetd)  stdin => 0 : %d\n", ret);
     ret = debugdup3(0, 1, 0);
-    printf("(inetd) stdout => 1 : %d\n", ret);
+    PCK("(inetd) stdout => 1 : %d\n", ret);
     ret = debugdup3(0, 2, 0);
-    printf("(inetd) stderr => 2 : %d\n", ret);
+    PCK("(inetd) stderr => 2 : %d\n", ret);
     debugclose(param->sock_tgt);
     debugclose(param->sock_host);
 
@@ -1465,7 +1467,7 @@ thr_pinetd_proc(struct pinetd_pair_s* param){
     try {
         wasmlinux_user_ctx_exec32(0, 0, envblock, 0, 0, 0);
     } catch (thr_exit &req) {
-        printf("Exiting thread(inetd process main thread).\n");
+        PCK("Exiting thread(inetd process main thread).\n");
     }
     thr_tls_cleanup();
     pool_free(puserdata);
@@ -1512,7 +1514,7 @@ pinetd_alloc(void* ctx, void* handle){ /* ACTION LOCKED */
     buf[3] = ptr1; /* Pair */
 
     ret = runsyscall32(199 /* socketpair */, 2, ptr0);
-    printf("SOCKPAIR: %d, %d, %d\n", ret, buf[4], buf[5]);
+    PCK("SOCKPAIR: %d, %d, %d\n", ret, buf[4], buf[5]);
     pair->sock_host = buf[4];
     pair->sock_tgt = buf[5];
 
@@ -1601,9 +1603,9 @@ thr_pinetd_main(void){
             }
             cev_size = evbuf[cev];
             for(int i=0;i!=cev_size;i++){
-                printf("MINIIO[%d]: %ld\n", i, evbuf[cev+i]);
+                PCK("MINIIO[%d]: %ld\n", i, evbuf[cev+i]);
             }
-            printf("\n");
+            PCK("\n");
             cev_code = evbuf[cev+1];
             cev_param = &evbuf[cev+2];
             cev += cev_size;
@@ -1636,7 +1638,7 @@ thr_pinetd_main(void){
                 case MINIIO_EVT_READ_EOF:
                 case MINIIO_EVT_READ_STOP:
                 case MINIIO_EVT_READ_ERROR:
-                    printf("FIXME: Free resources! %d\n", cev_code);
+                    PCK("FIXME: Free resources! %d\n", cev_code);
                     break;
 
                 case MINIIO_EVT_WRITE_COMPLETE:
@@ -1661,7 +1663,7 @@ thr_pinetd_main(void){
                     buf[1] = xbuf_ptr;
                     buf[2] = mio_size;
                     res = runsyscall32(64 /* __NR_write */, 3, buf_ptr);
-                    printf("(inetd) PROXY OUT %d\n",res);
+                    PCK("(inetd) PROXY OUT %d\n",res);
                     break;
 
                 case MINIIO_EVT_CHIME:
@@ -1690,7 +1692,7 @@ thr_pinetd_main(void){
                     break;
 
                 default:
-                    printf("Warning: Unknown miniio event %ld\n",
+                    PCK("Warning: Unknown miniio event %ld\n",
                            cev_code);
                     break;
             }
@@ -1715,7 +1717,7 @@ mod_memorymgr(uint64_t* in, uint64_t* out){
         case 1: /* mem_alloc [3 1 size] => [ptr32] */
             ptr = pool_alloc(in[1]);
             out[0] = pool_lklptr(ptr);
-            printf("malloc: %p (offs: %p) %ld\n", ptr, out[0], in[1]);
+            PCK("malloc: %p (offs: %p) %ld\n", ptr, out[0], in[1]);
             break;
         case 2: /* mem_free [3 2 ptr32] => [] */
             pool_free(pool_hostptr(in[1]));
@@ -1739,7 +1741,7 @@ mod_admin(uint64_t* in, uint64_t* out){
             puts(buf);
             break;
         case 2: /* panic [0 2] => HALT */
-            printf("panic.\n");
+            PCK("panic.\n");
             abort();
         default:
             abort();
@@ -1785,27 +1787,27 @@ thr_timer(int objid){
             }else{
                 std::cv_status s;
                 /* wait and fire */
-                //printf("Wait: %ld\n",wait_for);
+                //PCK("Wait: %ld\n",wait_for);
                 s = cv->wait_for(NN, std::chrono::nanoseconds(wait_for));
                 if(s == std::cv_status::timeout){
-                    //printf("Fire: %d\n",objtbl[objid].obj.timer.func32);
+                    //PCK("Fire: %d\n",objtbl[objid].obj.timer.func32);
                     mtx->unlock();
                     f(my_linux, arg32);
                     mtx->lock();
-                    //printf("Done: %d\n",objtbl[objid].obj.timer.func32);
+                    //PCK("Done: %d\n",objtbl[objid].obj.timer.func32);
                 }else{
                     if(objtbl[objid].obj.timer.wait_for == UINT64_MAX-1){
-                        printf("Spurious wakeup!: %ld again\n", wait_for);
+                        PCK("Spurious wakeup!: %ld again\n", wait_for);
                         objtbl[objid].obj.timer.wait_for = wait_for;
                     }else{
-                        printf("Rearm: %ld\n", objtbl[objid].obj.timer.wait_for);
+                        PCK("Rearm: %ld\n", objtbl[objid].obj.timer.wait_for);
                     }
                 }
             }
         }
     }
 
-    printf("Dispose timer %d\n", objid);
+    PCK("Dispose timer %d\n", objid);
     delete mtx;
     delete cv;
     delobj(objid);
@@ -1839,7 +1841,7 @@ mod_timer(uint64_t* in, uint64_t* out){
             if(objtbl[idx].type != OBJTYPE_TIMER){
                 abort();
             }
-            //printf("Oneshot timer: %d %ld\n",idx, in[2]);
+            //PCK("Oneshot timer: %d %ld\n",idx, in[2]);
             {
                 std::unique_lock<std::mutex> NN(*objtbl[idx].obj.timer.mtx);
                 objtbl[idx].obj.timer.wait_for = in[2];
@@ -1879,7 +1881,7 @@ mod_ctx(uint64_t* in, uint64_t* out){
             *p = (uintptr_t)(gp);
             f = getfunc_cont(in[2]);
             try {
-                //printf("Run: %lx %p\n", in[1], gp);
+                //PCK("Run: %lx %p\n", in[1], gp);
                 f(my_linux);
             } catch (guardian& gg) {
                 if(gg.ident != (uintptr_t)gp){
@@ -1892,7 +1894,7 @@ mod_ctx(uint64_t* in, uint64_t* out){
         case 2: /* jmp_buf_longjmp [5 2 ptr32 val32] => NORETURN */
             p = (uintptr_t*)pool_hostptr(in[1]);
             gp = (guardian*)(*p);
-            //printf("Throw: %lx %p\n", in[1], gp);
+            //PCK("Throw: %lx %p\n", in[1], gp);
             throw *gp;
         default:
             abort();
@@ -1917,7 +1919,7 @@ w2c_env_nccc_call64(struct w2c_env* env, u32 inptr, u32 outptr){
 
     mod = in[0];
     func = in[1];
-    //printf("CALL: %ld %ld \n", mod, func);
+    //PCK("CALL: %ld %ld \n", mod, func);
 
     switch(mod){
         case 0: /* Admin */
@@ -1939,7 +1941,7 @@ w2c_env_nccc_call64(struct w2c_env* env, u32 inptr, u32 outptr){
             mod_ctx(&in[1], out);
             break;
         default:
-            printf("Unkown request: %ld %ld \n", mod, func);
+            PCK("Unkown request: %ld %ld \n", mod, func);
             abort();
             return;
     }
@@ -1979,7 +1981,7 @@ main(int ac, char** av){
     current_top_page = maxpages;
     max_top_page = current_top_page + 2048;
 
-    printf("memmgr region = ptr: %p pages: %ld - %ld\n", mem->data, 
+    PCK("memmgr region = ptr: %p pages: %ld - %ld\n", mem->data, 
            startpages, maxpages);
 
     mpool_start = (startpages * WASM_PAGE_SIZE);
@@ -1994,7 +1996,7 @@ main(int ac, char** av){
     /* Create debug I/O thread */
     spawn_debugiothread();
 
-    printf("(init) pid = %d\n", debuggetpid());
+    PCK("(init) pid = %d\n", debuggetpid());
 
     /* Early startup */
     startup();
