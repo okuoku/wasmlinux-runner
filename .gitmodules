@@ -4,3 +4,6 @@
 [submodule "minitelnet"]
 	path = minitelnet
 	url = https://github.com/okuoku/minitelnet
+[submodule "xterm-pty"]
+	path = xterm-pty
+	url = https://github.com/mame/xterm-pty
