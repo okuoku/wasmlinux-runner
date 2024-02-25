@@ -434,11 +434,12 @@ handlesignal(void){
     ptr1 = ptr0 + 16; /* top of siginfo */
     ptr2 = 0; /* ucontext_t */
     sh = buf[0];
+    PCK("Deliver %d to %d\n", buf[12], sh);
     if(buf[1] & 4 /* SA_SIGINFO */){
         (void) wasmlinux_user_ctx_exec32(3 /* sighandler3 */, sh,
                                          buf[12 /* sig */], ptr1, ptr2, 0);
     }else{
-        (void) wasmlinux_user_ctx_exec32(1 /* sighandler1 */, sh,
+        (void) wasmlinux_user_ctx_exec32(2 /* sighandler1 */, sh,
                                          buf[12 /* sig */], 0, 0, 0);
     }
 
