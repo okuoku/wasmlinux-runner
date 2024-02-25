@@ -24,6 +24,10 @@ if(${IO_BACKEND} STREQUAL uv)
 endif()
 
 if(UNIX OR EMSCRIPTEN)
+    set(USE_MINITELNET on)
+endif()
+
+if(USE_MINITELNET)
     add_subdirectory(../minitelnet minitelnet)
 endif()
 
@@ -73,33 +77,40 @@ if(EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
 
-add_executable(runner
-    ${WITH_MINIIO}/src/miniio_${IO_BACKEND}.c
-    ${wasm2c}/wasm-rt-impl.c
+add_library(wasmmodules OBJECT
     ${kmdist}/kernel.c
     ${usermods}
-    mempoolite/mplite.c
-    runner.cpp
+    ${wasm2c}/wasm-rt-impl.c
     userctx_w2c.c
     glue_modules.c
+    )
+
+add_executable(runner
+    ${WITH_MINIIO}/src/miniio_${IO_BACKEND}.c
+    mempoolite/mplite.c
+    runner.cpp
 )
 
 if(EMSCRIPTEN)
-    target_compile_options(runner
+    set(em_opts
         # dwarf-5 is not compatible with wasm-opt (for now)
-        PRIVATE -pthread -fexceptions -fwasm-exceptions -gsplit-dwarf)
-    set_property(TARGET runner
-        PROPERTY LINK_OPTIONS -pthread -sPROXY_TO_PTHREAD 
+        -pthread -fexceptions -fwasm-exceptions -gsplit-dwarf)
+
+    target_compile_options(runner PRIVATE ${em_opts})
+    target_compile_options(wasmmodules PRIVATE ${em_opts})
+    target_link_options(runner
+        PRIVATE
+        LINK_OPTIONS -pthread -sPROXY_TO_PTHREAD 
         -fwasm-exceptions
         # 512MiB
         -sWASM_BIGINT
         -sINITIAL_MEMORY=536870912)
-
 endif()
 
 # FIXME: Migrate to WASM Exceptions
 target_compile_definitions(runner PRIVATE WASM_RT_USE_STACK_DEPTH_COUNT=0)
 
+target_link_libraries(runner wasmmodules)
 if(${IO_BACKEND} STREQUAL uv)
     target_link_libraries(runner ${uvlib})
 endif()
@@ -108,4 +119,5 @@ if(MSVC)
     # /EHs /EHc-: extern "C" may throw exceptions
     # https://learn.microsoft.com/en-us/cpp/build/reference/eh-exception-handling-model
     target_compile_options(runner PRIVATE /EHsc-)
+    target_compile_options(wasmmodules PRIVATE /EHsc-)
 endif()
