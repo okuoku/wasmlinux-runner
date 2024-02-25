@@ -23,6 +23,17 @@ if(${IO_BACKEND} STREQUAL uv)
     endif()
 endif()
 
+# Global options
+if(MSVC)
+    # /EHs /EHc-: extern "C" may throw exceptions
+    # https://learn.microsoft.com/en-us/cpp/build/reference/eh-exception-handling-model
+    add_compile_options(/EHsc-)
+else()
+    # add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+#
+
 if(EMSCRIPTEN)
     set(USE_MINITELNET on)
 endif()
@@ -129,9 +140,3 @@ if(${IO_BACKEND} STREQUAL uv)
     target_link_libraries(runner ${uvlib})
 endif()
 
-if(MSVC)
-    # /EHs /EHc-: extern "C" may throw exceptions
-    # https://learn.microsoft.com/en-us/cpp/build/reference/eh-exception-handling-model
-    target_compile_options(runner PRIVATE /EHsc-)
-    target_compile_options(wasmmodules PRIVATE /EHsc-)
-endif()

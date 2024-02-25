@@ -203,6 +203,18 @@ getfunc(int idx){
     return (funcptr)p;
 }
 
+static funcptr_void
+getfunc_void(int idx){
+    void* p;
+    //PCK("Converting %d ...", idx);
+    if(idx >= the_linux.w2c_T0.size){
+        abort();
+    }
+    p = (void*)the_linux.w2c_T0.data[idx].func;
+    //PCK(" %p\n", p);
+    return (funcptr_void)p;
+}
+
 static funcptr_cont
 getfunc_cont(int idx){
     void* p;
@@ -1165,7 +1177,7 @@ thr_trampoline(int objid){
         newinstance();
         memset(mytls, 0, sizeof(mytls));
         my_thread_objid = objid;
-        f = (funcptr_void)getfunc(objtbl[objid].obj.thr.func32);
+        f = getfunc_void(objtbl[objid].obj.thr.func32);
         f(my_linux, objtbl[objid].obj.thr.arg32);
         objtbl[objid].obj.thr.ret = 0;
     } catch (thr_exit &req) {
@@ -1807,7 +1819,7 @@ thr_timer(int objid){
     newinstance();
     prepare_newthread();
 
-    f = (funcptr_void)getfunc(objtbl[objid].obj.timer.func32);
+    f = getfunc_void(objtbl[objid].obj.timer.func32);
     arg32 = objtbl[objid].obj.timer.arg32;
 
     cv = objtbl[objid].obj.timer.cv;

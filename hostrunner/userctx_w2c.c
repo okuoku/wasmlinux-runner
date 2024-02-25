@@ -64,11 +64,10 @@ wasmlinux_user_module_load(void* bogus, unsigned char* modid, size_t len){
 /* type == 0 for admin */
 /* 0: w2c_user_0x5Fstart_c(my_user, envblock); */
 /* thread start routine */
-typedef uint32_t (*startroutine)(void*, uint32_t); /* type 1 */
+typedef uint32_t (*startroutine)(void*, uint32_t); /* type 1(I_I) */
 /* signal handlers */
-typedef void (*sighandler1)(void*, uint32_t); /* type 2 */
-typedef void (*sighandler3)(void*, uint32_t, uint32_t, uint32_t); /* type 3 */
-
+typedef void (*sighandler1)(void*, uint32_t); /* type 2(I_V) */
+typedef void (*sighandler3)(void*, uint32_t, uint32_t, uint32_t); /* type 3(III_V) */
 
 void
 wasmlinux_user_ctx_new32(struct user_context* cur, uint32_t stack){
@@ -92,6 +91,9 @@ uint32_t
 wasmlinux_user_ctx_exec32(int type, uint32_t func,
                           uint32_t param0, uint32_t param1, uint32_t param2,
                           uint32_t param3){
+    uintptr_t func_type;
+    uintptr_t actual_type;
+    uintptr_t alt_type;
     struct user_context* cur;
     wasm_rt_funcref_table_t* userfuncs;
     sighandler1 s1;
@@ -106,18 +108,40 @@ wasmlinux_user_ctx_exec32(int type, uint32_t func,
             abort();
         }
     }else{
+        actual_type = wasmlinux_modquery__embedded(WASMLINUX_MODQUERY_CMD_CHECK_TYPE,
+                                                   0, (uintptr_t)cur->modulectx, type - 1);
         userfuncs = &cur->i->userfuncs;
+        func_type = (uintptr_t)userfuncs->data[func].func_type;
         switch(type){
-            case 1:
+            case 1: /* Type 0 */
                 st = (startroutine)userfuncs->data[func].func;
+                if(func_type != actual_type){
+                    printf("WARNING: Func type mismatch st!! %p != %p, %d\n", func_type, actual_type, func);
+                }
                 st(cur->modulectx, param0);
                 break;
-            case 2:
+            case 2: /* Type 1 */
                 s1 = (sighandler1)userfuncs->data[func].func;
-                s1(cur->modulectx, param0);
+                if(func_type != actual_type){
+                    printf("WARNING: Func type mismatch s1!! %p != %p, %d (%p)\n", func_type, actual_type, func, s1);
+                    alt_type = wasmlinux_modquery__embedded(WASMLINUX_MODQUERY_CMD_CHECK_TYPE,
+                                                            0, (uintptr_t)cur->modulectx, WASMLINUX_MODQUERY_TYPE_III_V);
+                    if(alt_type == func_type){
+                        printf("Calling with alt type %p\n", alt_type);
+                        s3 = (sighandler3)userfuncs->data[func].func;
+                        s3(cur->modulectx, param0, 0, 0);
+                    }else{
+                        printf("No match alt type %p\n", alt_type);
+                    }
+                }else{
+                    s1(cur->modulectx, param0);
+                }
                 break;
-            case 3:
+            case 3: /* Type 2 */
                 s3 = (sighandler3)userfuncs->data[func].func;
+                if(func_type != actual_type){
+                    printf("WARNING: Func type mismatch s3!! %p != %p, %d\n", func_type, actual_type, func);
+                }
                 s3(cur->modulectx, param0, param1, param2);
                 break;
             default:
