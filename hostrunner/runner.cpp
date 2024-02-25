@@ -1,4 +1,5 @@
 #define YUNI_W2C_FIXUP_WASMLINUX_USER /* Remove this */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -10,8 +11,6 @@
 #include <mutex>
 #include <condition_variable>
 #include <semaphore>
-
-#define PCK printf
 
 /* Pseudo inetd */
 #include "miniio.h"
@@ -42,6 +41,17 @@ extern "C" {
     uint32_t wasmlinux_user_ctx_exec32(int type, uint32_t func, uint32_t param0, uint32_t param1, uint32_t param2, uint32_t param3);
     struct user_instance* wasmlinux_user_module_instantiate32(void* bogus, uint32_t dataptr, uint32_t initial_stack);
 };
+
+/* Debug printing */
+static void
+PCK(const char* fmt, ...){
+    char lbuf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(lbuf, 1024, fmt, ap);
+    va_end(ap);
+    fprintf(stderr, "%s", lbuf);
+}
 
 /* Pool management */
 uint8_t* mpool_base;
