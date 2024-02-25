@@ -4,7 +4,7 @@ project(linrunner C CXX)
 set(WITH_MINIIO ${CMAKE_CURRENT_LIST_DIR}/../miniio)
 
 if(EMSCRIPTEN)
-    set(IO_BACKEND stub)
+    set(IO_BACKEND localnetstub)
 else()
     set(IO_BACKEND uv) 
 endif()
@@ -23,7 +23,7 @@ if(${IO_BACKEND} STREQUAL uv)
     endif()
 endif()
 
-if(UNIX OR EMSCRIPTEN)
+if(EMSCRIPTEN)
     set(USE_MINITELNET on)
 endif()
 
@@ -75,7 +75,7 @@ include_directories(${userincdirs}
     ${WITH_MINIIO}/include)
 
 if(EMSCRIPTEN)
-    set(CMAKE_EXECUTABLE_SUFFIX ".html")
+    set(CMAKE_EXECUTABLE_SUFFIX ".mjs")
 endif()
 
 add_library(wasmmodules OBJECT
@@ -101,11 +101,17 @@ if(EMSCRIPTEN)
     target_compile_options(wasmmodules PRIVATE ${em_opts})
     target_link_options(runner
         PRIVATE
-        LINK_OPTIONS -pthread -sPROXY_TO_PTHREAD 
+        -pthread -sPROXY_TO_PTHREAD 
         -fwasm-exceptions
-        # 512MiB
         -sWASM_BIGINT
-        -sINITIAL_MEMORY=536870912)
+
+        # 512MiB
+        -sINITIAL_MEMORY=536870912
+
+        # xterm-pty
+        -sEXPORTED_FUNCTIONS=_malloc
+        --js-library=${CMAKE_CURRENT_LIST_DIR}/../xterm-pty/emscripten-pty.js
+        )
 endif()
 
 if(USE_MINITELNET)
