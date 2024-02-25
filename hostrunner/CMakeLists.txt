@@ -28,6 +28,7 @@ if(UNIX OR EMSCRIPTEN)
 endif()
 
 if(USE_MINITELNET)
+    set(MINITELNET_EMBEDDED on)
     add_subdirectory(../minitelnet minitelnet)
 endif()
 
@@ -107,8 +108,15 @@ if(EMSCRIPTEN)
         -sINITIAL_MEMORY=536870912)
 endif()
 
+if(USE_MINITELNET)
+    target_compile_definitions(runner PRIVATE
+        USE_MINITELNET=1)
+    target_link_libraries(runner minitelnet)
+endif()
+
 # FIXME: Migrate to WASM Exceptions
 target_compile_definitions(runner PRIVATE WASM_RT_USE_STACK_DEPTH_COUNT=0)
+target_compile_definitions(wasmmodules PRIVATE WASM_RT_USE_STACK_DEPTH_COUNT=0)
 
 target_link_libraries(runner wasmmodules)
 if(${IO_BACKEND} STREQUAL uv)

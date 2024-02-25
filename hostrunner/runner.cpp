@@ -43,14 +43,41 @@ extern "C" {
 };
 
 /* Debug printing */
+std::mutex debugprintconfig;
+static int active_debug_print = 1;
 static void
 PCK(const char* fmt, ...){
+    std::lock_guard<std::mutex> NN(debugprintconfig);
     char lbuf[1024];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(lbuf, 1024, fmt, ap);
     va_end(ap);
-    fprintf(stderr, "%s", lbuf);
+    if(active_debug_print){
+        fprintf(stderr, "%s", lbuf);
+    }
+}
+
+#ifdef USE_MINITELNET
+extern "C" void start_minitelnet(void);
+static void
+thr_console(void){
+    {
+        std::lock_guard<std::mutex> NN(debugprintconfig);
+        active_debug_print = 0;
+    }
+    start_minitelnet();
+}
+#endif
+
+
+static void
+console_startup(void){
+#ifdef USE_MINITELNET
+    std::thread* thr;
+    thr = new std::thread(thr_console);
+    thr->detach();
+#endif
 }
 
 /* Pool management */
@@ -1633,6 +1660,7 @@ thr_pinetd_main(void){
                     if(r){
                         abort();
                     }
+                    console_startup();
                     break;
 
                 case MINIIO_EVT_CONNECT_INCOMMING:
@@ -1688,6 +1716,7 @@ thr_pinetd_main(void){
                                                   pair->write_buffer,
                                                   0, pair->kernreadcnt);
                     memcpy(mio_data, pair->readbuf, pair->kernreadcnt);
+                    miniio_buffer_unlock(ctx, pair->write_buffer);
                     r = miniio_write(ctx, pair->handle, pair->write_buffer,
                                      0, pair->kernreadcnt);
                     pair->kernreadcnt = 0;
@@ -1748,7 +1777,7 @@ mod_admin(uint64_t* in, uint64_t* out){
             buf = (char*)malloc(in[2] + 1);
             buf[in[2]] = 0;
             memcpy(buf, mem->data + in[1], in[2]);
-            puts(buf);
+            PCK("%s", buf);
             break;
         case 2: /* panic [0 2] => HALT */
             PCK("panic.\n");
