@@ -79,7 +79,7 @@ wasmlinux_modquery__embedded(int cmd, int modidx,
                 case WASMLINUX_MODQUERY_TYPE_I_I:
                 case WASMLINUX_MODQUERY_TYPE_I_V:
                 case WASMLINUX_MODQUERY_TYPE_III_V:
-                    return me->types[param];
+                    return (uintptr_t)me->types[param];
                 default:
                     return -1;
             }
