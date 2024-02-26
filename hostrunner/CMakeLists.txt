@@ -106,7 +106,8 @@ add_executable(runner
 if(EMSCRIPTEN)
     set(em_opts
         # dwarf-5 is not compatible with wasm-opt (for now)
-        -pthread -fexceptions -fwasm-exceptions -gsplit-dwarf)
+        -pthread -fexceptions -fwasm-exceptions # -gsplit-dwarf
+        )
 
     target_compile_options(runner PRIVATE ${em_opts})
     target_compile_options(wasmmodules PRIVATE ${em_opts})
@@ -118,10 +119,26 @@ if(EMSCRIPTEN)
 
         # 512MiB
         -sINITIAL_MEMORY=536870912
+        -sMALLOC=mimalloc
+        -sASSERTIONS
 
         # xterm-pty
-        -sEXPORTED_FUNCTIONS=_malloc
+        #-sEXPORTED_FUNCTIONS=_malloc # is not required on mimalloc
         --js-library=${CMAKE_CURRENT_LIST_DIR}/../xterm-pty/emscripten-pty.js
+        )
+    # Cheat.
+    set_source_files_properties(
+        runner.cpp
+        PROPERTIES
+        COMPILE_DEFINITIONS 
+        "USE_POSIX_SEMAPHORE=1"
+        )
+    set_source_files_properties(
+        ${kmdist}/kernel.c
+        ${usermods}
+        PROPERTIES
+        COMPILE_DEFINITIONS 
+        "WASMLINUX_CHEAT_MEMCHECK=1"
         )
 endif()
 

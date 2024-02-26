@@ -39,4 +39,9 @@ int wasmlinux_run_to_execve(jmp_buf* jb);
 #ifdef __cplusplus
 }
 #endif
+
+#ifdef WASMLINUX_CHEAT_MEMCHECK
+#define WASM_RT_MEMCHECK_GUARD_PAGES 1
+#endif
+
 #endif

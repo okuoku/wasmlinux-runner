@@ -12,6 +12,10 @@
 #include <condition_variable>
 #include <semaphore>
 
+#ifdef USE_POSIX_SEMAPHORE
+#include <semaphore.h>
+#endif
+
 /* Pseudo inetd */
 #include "miniio.h"
 const int TELNET_PORT = 5666;
@@ -45,8 +49,9 @@ extern "C" {
 /* Debug printing */
 std::mutex debugprintconfig;
 static int active_debug_print = 1;
+
 static void
-PCK(const char* fmt, ...){
+PCK0(const char* fmt, ...){
     std::lock_guard<std::mutex> NN(debugprintconfig);
     char lbuf[1024];
     va_list ap;
@@ -56,6 +61,21 @@ PCK(const char* fmt, ...){
     if(active_debug_print){
         fprintf(stderr, "%s", lbuf);
     }
+}
+
+static void
+PCK(const char* fmt, ...){
+#if 0
+    std::lock_guard<std::mutex> NN(debugprintconfig);
+    char lbuf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(lbuf, 1024, fmt, ap);
+    va_end(ap);
+    if(active_debug_print){
+        fprintf(stderr, "%s", lbuf);
+    }
+#endif
 }
 
 #ifdef USE_MINITELNET
@@ -140,7 +160,11 @@ struct hostobj_s {
     enum objtype type;
     int id;
     union {
+#ifndef USE_POSIX_SEMAPHORE
         std::counting_semaphore<>* sem;
+#else
+        sem_t sem;
+#endif
         std::mutex* mtx;
         std::recursive_mutex* mtx_recursive;
         struct {
@@ -1095,6 +1119,7 @@ static void
 mod_syncobjects(uint64_t* in, uint64_t* out){
     int idx;
     switch(in[0]){
+#ifndef USE_POSIX_SEMAPHORE
         case 1: /* sem_alloc [1 1 count] => [sem32] */
             idx = newobj(OBJTYPE_SEM);
             objtbl[idx].obj.sem = new std::counting_semaphore(in[1]);
@@ -1122,6 +1147,35 @@ mod_syncobjects(uint64_t* in, uint64_t* out){
             }
             objtbl[idx].obj.sem->acquire();
             break;
+#else
+        case 1: /* sem_alloc [1 1 count] => [sem32] */
+            idx = newobj(OBJTYPE_SEM);
+            sem_init(&objtbl[idx].obj.sem, 0, in[1]);
+            out[0] = idx;
+            break;
+        case 2: /* sem_free [1 2 sem32] => [] */
+            idx = in[1];
+            if(objtbl[idx].type != OBJTYPE_SEM){
+                abort();
+            }
+            sem_destroy(&objtbl[idx].obj.sem);
+            delobj(idx);
+            break;
+        case 3: /* sem_up [1 3 sem32] => [] */
+            idx = in[1];
+            if(objtbl[idx].type != OBJTYPE_SEM){
+                abort();
+            }
+            sem_post(&objtbl[idx].obj.sem);
+            break;
+        case 4: /* sem_down [1 4 sem32] => [] */
+            idx = in[1];
+            if(objtbl[idx].type != OBJTYPE_SEM){
+                abort();
+            }
+            sem_wait(&objtbl[idx].obj.sem);
+            break;
+#endif
         case 5: /* mutex_alloc [1 5 recursive?] => [mtx32] */
             if(in[1] /* recursive? */){
                 idx = newobj(OBJTYPE_RECURSIVE_MUTEX);
@@ -1790,10 +1844,10 @@ mod_admin(uint64_t* in, uint64_t* out){
             buf = (char*)malloc(in[2] + 1);
             buf[in[2]] = 0;
             memcpy(buf, mem->data + in[1], in[2]);
-            PCK("%s", buf);
+            PCK0("%s", buf);
             break;
         case 2: /* panic [0 2] => HALT */
-            PCK("panic.\n");
+            PCK0("panic.\n");
             abort();
         default:
             abort();
