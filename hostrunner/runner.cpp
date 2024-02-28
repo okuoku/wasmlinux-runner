@@ -65,7 +65,7 @@ PCK0(const char* fmt, ...){
 
 static void
 PCK(const char* fmt, ...){
-#if 0
+#ifndef __EMSCRIPTEN__ 
     std::lock_guard<std::mutex> NN(debugprintconfig);
     char lbuf[1024];
     va_list ap;
